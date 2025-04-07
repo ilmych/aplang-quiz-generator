@@ -15,6 +15,7 @@ This system generates educational quizzes using Claude's Sonnet 3.7 model. It cr
 - Graceful fallback mechanisms for handling missing data
 - Question validation to ensure quality
 - Command-line interface for easy usage
+- Optional quiz publishing to PowerPath
 
 ## Prerequisites
 
@@ -92,6 +93,7 @@ The system uses a centralized configuration module (`config.py`) that loads sett
 - Concurrency settings (max workers)
 - File paths
 - Difficulty settings
+- Publishing endpoint (optional)
 
 Environment variables that can be set:
 - `ANTHROPIC_API_KEY`: Your Anthropic API key
@@ -103,6 +105,8 @@ Environment variables that can be set:
 - `MAX_WORKERS`: Maximum number of concurrent workers (default: 5)
 - `DATA_DIR`: Directory containing data files (default: current directory)
 - `LOG_LEVEL`: Logging level (default: INFO)
+- `INCEPTSTORE_API_URL`: API endpoint for publishing quizzes (default: "https://coreapi.inceptstore.com/case/publish")
+- `OUTPUT_DIR`: Directory for saving generated quizzes (default: "generated_quizzes")
 
 ## Usage
 
@@ -160,6 +164,44 @@ async def generate_sample_quiz():
 if __name__ == "__main__":
     quiz = asyncio.run(generate_sample_quiz())
     print(quiz)
+```
+
+### Publishing Quizzes
+
+The system includes functionality to publish generated quizzes to an external database. This allows the quizzes to be used in educational platforms.
+
+#### Publishing Options
+
+Quizzes can be published in three ways:
+1. Create a new course with the quiz
+2. Add a quiz to an existing course as a new module
+3. Update an existing module in an existing course
+
+#### CLI Publishing Examples
+
+```bash
+# Generate a quiz and publish it (interactive mode)
+python cli.py --lesson "Audience" --difficulty 2 --num-questions 6 --publish
+
+# Generate a quiz and create a new course automatically
+python cli.py --lesson "Claims" --publish --new-course --module-name "Rhetoric Module" --item-name "Claims Quiz" --xp-value 25
+
+# Publish an existing quiz file to a new course
+python cli.py --publish-only path/to/quiz.json --new-course --module-name "Module Name" --item-name "Quiz Name" --xp-value 20
+
+# Add a quiz to an existing course
+python cli.py --lesson "Audience" --publish --existing-course "course_id_123" --module-name "New Module" --item-name "Audience Quiz" --xp-value 20
+
+# Update an existing module
+python cli.py --lesson "Thesis Statement" --publish --update-module "course_id_123:module_id_456" --item-name "Updated Quiz" --xp-value 15
+```
+
+#### Using the Publishing Tool Directly
+
+For more direct access to publishing functionality, you can use the standalone publishing tool:
+
+```bash
+python publish_quiz_file.py path/to/quiz.json --course-name "Course Name" --module-name "Module Name" --item-name "Item Name" --xp 25
 ```
 
 ## Question Distribution
@@ -251,7 +293,7 @@ The system generates quizzes in JSON format:
     "difficulty": 2,
     "num_questions": 8,
     "num_questions_generated": 8,
-    "timestamp": "2023-06-04 10:45:32"
+    "timestamp": "2023-06-15 14:30:45"
   }
 }
 ```

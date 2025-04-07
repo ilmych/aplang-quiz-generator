@@ -25,6 +25,14 @@ except ImportError:
     logger.error("Could not import QuizGenerator from main.py")
     sys.exit(1)
 
+# Import the PublishQuestions class
+try:
+    from publish_questions import PublishQuestions
+except ImportError:
+    logger.error("Could not import PublishQuestions from publish_questions.py")
+    logger.warning("Publishing features will not be available")
+    PublishQuestions = None
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Generate educational quizzes using Claude.")
@@ -48,12 +56,39 @@ def parse_args():
     parser.add_argument("--output-file", type=str, help="Path to save the output JSON")
     parser.add_argument("--api-key", type=str, help="Anthropic API key (overrides environment variable)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    
+    # Publishing options
+    publish_group = parser.add_argument_group("Publishing options")
+    publish_group.add_argument("--publish", action="store_true", help="Publish the quiz to the database after generation")
+    publish_group.add_argument("--publish-only", type=str, help="Publish an existing quiz JSON file")
+    
+    # Publishing mode options (mutually exclusive)
+    publish_mode = publish_group.add_mutually_exclusive_group()
+    publish_mode.add_argument("--new-course", action="store_true", 
+                             help="Create a new course when publishing")
+    publish_mode.add_argument("--existing-course", type=str, metavar="COURSE_ID",
+                             help="Add a new module to an existing course with the specified ID")
+    publish_mode.add_argument("--update-module", type=str, metavar="COURSE_ID:MODULE_ID",
+                             help="Update an existing module in an existing course. Format: COURSE_ID:MODULE_ID")
+
+    # Quiz item details
+    publish_group.add_argument("--module-name", type=str, help="Module name for publishing (for new modules)")
+    publish_group.add_argument("--item-name", type=str, help="Quiz item name for publishing")
+    publish_group.add_argument("--xp-value", type=int, help="XP value for completing the quiz")
 
     args = parser.parse_args()
     
-    # Validate arguments - require lesson or standard if not listing
-    if not (args.list_lessons or args.list_standards) and not (args.lesson or args.standard):
-        parser.error("One of --lesson or --standard is required when not using list operations")
+    # Validate arguments - require lesson or standard if not listing or publishing only
+    if not (args.list_lessons or args.list_standards or args.publish_only) and not (args.lesson or args.standard):
+        parser.error("One of --lesson or --standard is required when not using list operations or --publish-only")
+    
+    # Check if publishing is available when requested    
+    if (args.publish or args.publish_only) and PublishQuestions is None:
+        parser.error("Publishing features are not available. Make sure publish_questions.py is in the same directory.")
+    
+    # Validate the update-module format if provided
+    if args.update_module and ":" not in args.update_module:
+        parser.error("--update-module requires the format COURSE_ID:MODULE_ID")
         
     return args
 
@@ -129,6 +164,178 @@ def list_available_standards(generator: QuizGenerator):
         lesson_names = ", ".join(lessons) if lessons else "No lessons"
         print(f"{i}. {standard} - Lessons: {lesson_names}")
 
+async def get_course_details_from_args(args) -> Dict[str, Any]:
+    """
+    Create course details structure from command-line arguments.
+    
+    Args:
+        args: Command-line arguments
+        
+    Returns:
+        Course details dictionary for API
+    """
+    # Prepare course details based on the arguments provided
+    
+    if args.update_module:
+        # Updating an existing module in an existing course
+        try:
+            course_id, module_id = args.update_module.split(":", 1)
+        except ValueError:
+            # This should be caught by the argument parser, but just in case
+            raise ValueError("--update-module requires the format COURSE_ID:MODULE_ID")
+        
+        course_details = {
+            "items": [
+                {
+                    "name": args.item_name or "Updated Quiz",
+                    "contentType": "quiz",
+                    "xp": args.xp_value or 10
+                }
+            ],
+            "course_id": course_id,
+            "module_id": module_id
+        }
+    elif args.existing_course:
+        # Creating new module in existing course
+        course_details = {
+            "module": {"name": args.module_name or "New Module"},
+            "items": [
+                {
+                    "name": args.item_name or "Quiz",
+                    "contentType": "quiz",
+                    "xp": args.xp_value or 10
+                }
+            ],
+            "course_id": args.existing_course
+        }
+    else:
+        # Creating a new course
+        course_details = {
+            "course": {"title": args.item_name or "New Course"},
+            "module": {"name": args.module_name or "New Module"},
+            "items": [
+                {
+                    "name": args.item_name or "Quiz",
+                    "contentType": "quiz",
+                    "xp": args.xp_value or 10
+                }
+            ]
+        }
+    
+    return course_details
+
+async def publish_quiz(quiz_data: Dict[str, Any], args) -> Dict[str, Any]:
+    """
+    Publish a quiz to the database.
+    
+    Args:
+        quiz_data: The quiz data to publish
+        args: Command-line arguments
+        
+    Returns:
+        Dictionary with the results of the operation
+    """
+    if PublishQuestions is None:
+        logger.error("PublishQuestions module is not available")
+        return {
+            "success": False,
+            "messages": ["Publishing module is not available"]
+        }
+    
+    try:
+        publisher = PublishQuestions()
+        
+        # Check if we have explicit publish mode from arguments
+        if args.new_course or args.existing_course or args.update_module or args.module_name or args.item_name or args.xp_value:
+            # Use non-interactive mode with command-line arguments
+            result = {
+                "success": False,
+                "actions": [],
+                "messages": []
+            }
+            
+            # Save the quiz to a file
+            saved_file = await publisher.save_quiz_to_file(quiz_data)
+            result["actions"].append("saved")
+            result["saved_file"] = saved_file
+            result["messages"].append(f"Quiz saved to {saved_file}")
+            
+            # Get course details from command-line arguments
+            course_details = await get_course_details_from_args(args)
+            
+            # Format the quiz for the API
+            payload = publisher.format_quiz_for_api(quiz_data, course_details)
+            
+            # Publish to the API
+            api_response = await publisher.publish_to_api(payload)
+            
+            # Set appropriate action and message based on mode
+            if args.update_module:
+                course_id, module_id = args.update_module.split(":", 1)
+                result["actions"].append("updated_existing_module")
+                result["messages"].append(f"Quiz successfully updated in existing module (Course ID: {course_id}, Module ID: {module_id}).")
+            elif args.existing_course:
+                result["actions"].append("published_to_existing_course")
+                result["messages"].append(f"Quiz successfully published to existing course (ID: {args.existing_course}) as a new module.")
+            else:
+                result["actions"].append("published_new_course")
+                result["messages"].append("Quiz successfully published as a new course.")
+                
+            result["api_response"] = api_response
+            result["success"] = True
+            
+            return result
+        else:
+            # Use interactive mode
+            return await publisher.process_quiz(quiz_data)
+    
+    except Exception as e:
+        logger.error(f"Error publishing quiz: {str(e)}")
+        return {
+            "success": False,
+            "messages": [f"Error: {str(e)}"]
+        }
+
+async def publish_existing_quiz(file_path: str, args) -> Dict[str, Any]:
+    """
+    Publish an existing quiz from a JSON file.
+    
+    Args:
+        file_path: Path to the quiz JSON file
+        args: Command-line arguments
+        
+    Returns:
+        Dictionary with the results of the operation
+    """
+    try:
+        # Load the quiz data from the file
+        with open(file_path, "r", encoding="utf-8") as f:
+            quiz_data = json.load(f)
+        
+        logger.info(f"Loaded quiz data from {file_path}")
+        
+        # Publish the quiz
+        return await publish_quiz(quiz_data, args)
+    
+    except FileNotFoundError:
+        logger.error(f"Quiz file not found: {file_path}")
+        return {
+            "success": False,
+            "messages": [f"Quiz file not found: {file_path}"]
+        }
+    except json.JSONDecodeError:
+        logger.error(f"Invalid JSON in quiz file: {file_path}")
+        return {
+            "success": False,
+            "messages": [f"Invalid JSON in quiz file: {file_path}"]
+        }
+    except Exception as e:
+        logger.error(f"Error publishing existing quiz: {str(e)}")
+        return {
+            "success": False,
+            "messages": [f"Error: {str(e)}"]
+        }
+
 async def main():
     """Main entry point for the CLI."""
     args = parse_args()
@@ -140,7 +347,24 @@ async def main():
     # Set API key if provided
     if args.api_key:
         os.environ["ANTHROPIC_API_KEY"] = args.api_key
-        logger.info("Using API key from command line")
+        logger.info("Using Anthropic API key from command line")
+
+    # Check if we're just publishing an existing quiz
+    if args.publish_only:
+        logger.info(f"Publishing existing quiz: {args.publish_only}")
+        result = await publish_existing_quiz(args.publish_only, args)
+        
+        if result["success"]:
+            logger.info("Quiz published successfully")
+            for message in result["messages"]:
+                print(message)
+        else:
+            logger.error("Failed to publish quiz")
+            for message in result["messages"]:
+                print(f"Error: {message}")
+            sys.exit(1)
+        
+        return
 
     # Create the quiz generator
     try:
@@ -216,18 +440,40 @@ async def main():
         if error_message:
             logger.warning(f"Quiz generated with warnings: {error_message}")
         
-        # Save the output
-        output_file = save_output(quiz, args.output_file)
-        num_questions_generated = quiz.get("metadata", {}).get("num_questions_generated", 0)
-        logger.info(f"Quiz generated with {num_questions_generated} questions")
-        logger.info(f"Saved to: {output_file}")
-
         # Print a summary
         passage_title = quiz.get("passage", {}).get("title", "Unknown title")
         passage_author = quiz.get("passage", {}).get("author", "Unknown author")
+        num_questions_generated = quiz.get("metadata", {}).get("num_questions_generated", 0)
+        
         print(f"\nGenerated quiz on: {passage_title} by {passage_author}")
         print(f"Total questions: {num_questions_generated}")
-        print(f"Output saved to: {output_file}")
+        
+        # Check if we should publish the quiz
+        if args.publish:
+            logger.info("Publishing quiz to database")
+            publish_result = await publish_quiz(quiz, args)
+            
+            if publish_result["success"]:
+                logger.info("Quiz published successfully")
+                for message in publish_result["messages"]:
+                    print(message)
+                
+                # If the quiz was saved during publishing, get the filename
+                if "saved_file" in publish_result:
+                    output_file = publish_result["saved_file"]
+                    print(f"Output saved to: {output_file}")
+            else:
+                logger.error("Failed to publish quiz")
+                for message in publish_result["messages"]:
+                    print(f"Error: {message}")
+                
+                # Still save the output even if publishing failed
+                output_file = save_output(quiz, args.output_file)
+                print(f"Output saved to: {output_file}")
+        else:
+            # Just save the output without publishing
+            output_file = save_output(quiz, args.output_file)
+            print(f"Output saved to: {output_file}")
 
     except KeyboardInterrupt:
         logger.info("Quiz generation cancelled by user")

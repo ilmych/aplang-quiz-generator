@@ -24,6 +24,13 @@ import sys
 # Import dotenv for environment variables (already loaded in config)
 from dotenv import load_dotenv
 
+# Import the PublishQuestions class for publishing functionality
+try:
+    from publish_questions import PublishQuestions
+except ImportError:
+    logger.warning("PublishQuestions module not found. Publishing features will not be available.")
+    PublishQuestions = None
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -1816,10 +1823,78 @@ async def main():
     """
     Main entry point for running the quiz generator
     """
-    generator = QuizGenerator()
-    # Example usage
-    quiz = generator.generate_quiz(lesson_id="lesson1", difficulty=2, num_questions=8)
-    print(json.dumps(quiz, indent=2))
+    try:
+        # Check if we have command-line arguments
+        if len(sys.argv) > 1:
+            # For CLI functionality, use the CLI module
+            from cli import main as cli_main
+            return await cli_main()
+        
+        # If no command-line arguments provided, use interactive mode
+        generator = QuizGenerator()
+        
+        # Get input from the user
+        lesson_or_standard = input("Enter lesson name or standard ID: ")
+        
+        # Determine if it's a lesson or standard
+        is_standard = any(char.isdigit() for char in lesson_or_standard) and "." in lesson_or_standard
+        
+        difficulty = int(input("Enter difficulty level (1: Easy, 2: Medium, 3: Hard): "))
+        num_questions = int(input("Enter number of questions (1-12): "))
+        
+        # Generate the quiz based on input
+        if is_standard:
+            logger.info(f"Generating quiz for standard: {lesson_or_standard}")
+            quiz = await generator.generate_quiz(
+                standard_id=lesson_or_standard,
+                difficulty=difficulty,
+                num_questions=num_questions
+            )
+        else:
+            logger.info(f"Generating quiz for lesson: {lesson_or_standard}")
+            quiz = await generator.generate_quiz(
+                lesson_name=lesson_or_standard,
+                difficulty=difficulty,
+                num_questions=num_questions
+            )
+        
+        # Save the quiz to a file
+        timestamp = quiz.get("metadata", {}).get("timestamp", "").replace(":", "-").replace(" ", "_")
+        filename = f"quiz_{lesson_or_standard.replace(' ', '_')}_{timestamp}.json"
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(quiz, f, indent=2)
+        
+        print(f"\nQuiz generated successfully with {len(quiz.get('questions', []))} questions")
+        print(f"Quiz saved to: {filename}")
+        
+        # Check if publishing is available
+        if PublishQuestions is not None:
+            # Ask if the user wants to publish the quiz
+            publish_response = input("\nDo you want to publish this quiz? (yes/no): ").strip().lower()
+            
+            if publish_response in ['yes', 'y']:
+                publisher = PublishQuestions()
+                publish_result = await publisher.process_quiz(quiz)
+                
+                if publish_result.get("success", False):
+                    for message in publish_result.get("messages", []):
+                        print(message)
+                else:
+                    print("Failed to publish quiz:")
+                    for message in publish_result.get("messages", []):
+                        print(f"Error: {message}")
+            else:
+                print("Quiz was not published.")
+        else:
+            print("\nPublishing functionality is not available.")
+        
+        return quiz
+    
+    except Exception as e:
+        logger.error(f"Error in main: {str(e)}")
+        print(f"An error occurred: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     asyncio.run(main()) 

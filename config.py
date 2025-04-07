@@ -21,6 +21,9 @@ class Config:
     ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-3-7-sonnet-20250219")
     
+    # InceptStore API configuration
+    INCEPTSTORE_API_URL = os.environ.get("INCEPTSTORE_API_URL", "https://coreapi.inceptstore.com/case/publish")
+    
     # Retry configuration
     MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "5"))
     RETRY_DELAY = float(os.environ.get("RETRY_DELAY", "2.0"))
@@ -40,6 +43,9 @@ class Config:
     QC_PROMPTS_FILE = os.path.join(DATA_DIR, os.environ.get("QC_PROMPTS_FILE", "lang-question-qc.json"))
     EXPLANATIONS_EXAMPLES_FILE = os.path.join(DATA_DIR, os.environ.get("EXPLANATIONS_EXAMPLES_FILE", "lang_explanations_examples.json"))
     LOG_FILE = os.environ.get("LOG_FILE", "quiz_generator.log")
+    
+    # Output directory for generated quizzes
+    OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "generated_quizzes")
     
     # Difficulty level mappings
     DIFFICULTY_LEVELS = {
