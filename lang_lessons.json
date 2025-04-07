@@ -1,0 +1,230 @@
+[
+    {
+        "lesson": "Elements of the Rhetorical Situation",
+        "standards": "RHS-1.A"
+    },
+    {
+        "lesson": "Exigence",
+        "standards": "RHS-1.B"
+    },
+    {
+        "lesson": "Purpose",
+        "standards": "RHS-1.C"
+    },
+    {
+        "lesson": "Audience",
+        "standards": "RHS-1.D"
+    },
+    {
+        "lesson": "Context and Message",
+        "standards": "RHS-1.E"
+    },
+    {
+        "lesson": "Claims",
+        "standards": "CLE-1.A"
+    },
+    {
+        "lesson": "Evidence and Reasoning",
+        "standards": "CLE-1.B"
+    },
+    {
+        "lesson": "Types of Evidence",
+        "standards": "CLE-1.C"
+    },
+    {
+        "lesson": "Defensible and Interesting Claims",
+        "standards": "CLE-1.D"
+    },
+    {
+        "lesson": "Source Materials",
+        "standards": "CLE-1.E"
+    },
+    {
+        "lesson": "Relating to an Intended Audience",
+        "standards": "RHS-1.F, RHS-1.G"
+    },
+    {
+        "lesson": "Modes of Persuasion",
+        "standards": "RHS-1.H"
+    },
+    {
+        "lesson": "Strategic Evidence",
+        "standards": "CLE-1.F, CLE-1.G"
+    },
+    {
+        "lesson": "Sufficient Evidence",
+        "standards": "CLE-1.H"
+    },
+    {
+        "lesson": "Thesis Statements",
+        "standards": "CLE-1.I, CLE-1.J"
+    },
+    {
+        "lesson": "Using Commentary Effectively",
+        "standards": "CLE-1.K"
+    },
+    {
+        "lesson": "Integrating and Acknowledging Source Material",
+        "standards": "CLE-1.L, CLE-1.M, CLE-1.N"
+    },
+    {
+        "lesson": "A Line of Reasoning",
+        "standards": "REO-1.A, REO-1.B, REO-1.C, REO-1.D, REO-1.E"
+    },
+    {
+        "lesson": "Flaws in Reasoning",
+        "standards": "REO-1.F"
+    },
+    {
+        "lesson": "Methods of Development",
+        "standards": "REO-1.G, REO-1.H"
+    },
+    {
+        "lesson": "Methods of Development: Narration",
+        "standards": "REO-1.I"
+    },
+    {
+        "lesson": "Methods of Development: Cause-Effect",
+        "standards": "REO-1.J"
+    },
+    {
+        "lesson": "Introductions",
+        "standards": "RHS-1.I"
+    },
+    {
+        "lesson": "Conclusions",
+        "standards": "RHS-1.J"
+    },
+    {
+        "lesson": "Thesis Statement and Line of Reasoning",
+        "standards": "CLE-1.O"
+    },
+    {
+        "lesson": "Methods of Development: Comparison-Contrast",
+        "standards": "REO-1.G, REO-1.K"
+    },
+    {
+        "lesson": "Methods of Development: Description and Definition",
+        "standards": "REO-1.L"
+    },
+    {
+        "lesson": "Functions of Body Paragraphs",
+        "standards": "REO-1.M"
+    },
+    {
+        "lesson": "Levels of Coherence",
+        "standards": "REO-1.N"
+    },
+    {
+        "lesson": "Repeated Words and Patterns that Strengthen Coherence",
+        "standards": "REO-1.O"
+    },
+    {
+        "lesson": "Transitions",
+        "standards": "REO-1.P, REO-1.Q"
+    },
+    {
+        "lesson": "The Meaning of Words",
+        "standards": "STL-1.A"
+    },
+    {
+        "lesson": "Word Choice and Perspective",
+        "standards": "STL-1.B, STL-1.C"
+    },
+    {
+        "lesson": "Evaluating and Synthesizing Source Material",
+        "standards": "CLE-1.P, CLE-1.Q"
+    },
+    {
+        "lesson": "Position Versus Perspective",
+        "standards": "CLE-1.R"
+    },
+    {
+        "lesson": "Recognizing and Acknowledging Biases in Source Material",
+        "standards": "CLE-1.S, CLE-1.T"
+    },
+    {
+        "lesson": "Consideration and Use of New Evidence",
+        "standards": "CLE-1.U"
+    },
+    {
+        "lesson": "Tone",
+        "standards": "STL-1.D, STL-1.E"
+    },
+    {
+        "lesson": "Shifts in Tone",
+        "standards": "STL-1.F"
+    },
+    {
+        "lesson": "Beginning with the End in Mind",
+        "standards": "RHS-1.I"
+    },
+    {
+        "lesson": "Ending at the Beginning: A Unified End",
+        "standards": "RHS-1.J"
+    },
+    {
+        "lesson": "Complexity and Absolute Terms",
+        "standards": "CLE-1.V, CLE-1.W"
+    },
+    {
+        "lesson": "Using Modifiers to Qualify Claims",
+        "standards": "CLE-1.X"
+    },
+    {
+        "lesson": "Arranging Sentences",
+        "standards": "STL-1.G, STL-1.H, STL-1.L"
+    },
+    {
+        "lesson": "Subordination and Coordination",
+        "standards": "STL-1.I, STL-1.J, STL-1.K"
+    },
+    {
+        "lesson": "Grammar, Mechanics, and Punctuation for Meaning",
+        "standards": "STL-1.M, STL-1.N, STL-1.O"
+    },
+    {
+        "lesson": "Design Features",
+        "standards": "STL-1.P"
+    },
+    {
+        "lesson": "Effective Comparisons in Context",
+        "standards": "RHS-1.K"
+    },
+    {
+        "lesson": "Diction and Syntax in Crafting Argument",
+        "standards": "RHS-1.L, RHS-1.M"
+    },
+    {
+        "lesson": "Unique and Dynamic Audiences",
+        "standards": "RHS-1.N"
+    },
+    {
+        "lesson": "Writer\u2019s Style",
+        "standards": "STL-1.Q"
+    },
+    {
+        "lesson": "Complex and Ironic Perspectives",
+        "standards": "STL-1.R"
+    },
+    {
+        "lesson": "Modifiers",
+        "standards": "STL-1.S"
+    },
+    {
+        "lesson": "Parenthetical Elements",
+        "standards": "STL-1.T"
+    },
+    {
+        "lesson": "Engaging with Others",
+        "standards": "CLE-1.Y, CLE-1.Z"
+    },
+    {
+        "lesson": "Admitting or Challenging Limitations",
+        "standards": "CLE-1.AA, CLE-1.AB, CLE-1.AC, CLE-1.AD"
+    },
+    {
+        "lesson": "Transitions to Counterarguments",
+        "standards": "CLE-1.AE, CLE-1.AF"
+    }
+]
