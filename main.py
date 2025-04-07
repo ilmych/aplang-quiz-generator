@@ -1375,12 +1375,13 @@ Distractor 3: {example_distractors[2]}
 2. Follow these structural requirements:
    - Must use similar language patterns as example
    - Must maintain similar difficulty level
-   - Must use parallel answer choice structure
+   - Must maintain similar answer choice structure
    - Must be provable with direct textual evidence
 
 3. Quality Requirements:
    - Question must be unambiguous
    - Correct answer must be definitively provable
+   - Correct answer MUSTN'T stand out structurally from the distractors
    - Distractors must be plausible but clearly incorrect
    - All options must be distinct from each other
    - No overlap with previous questions' content focus
@@ -1397,8 +1398,9 @@ Distractor 3: {example_distractors[2]}
 ```
 
 IMPORTANT INSTRUCTIONS:
-- Do not include any line/paragraph number references unless they are in the original passage
+- Do not include any line number references; only use paragraph numbers
 - Make sure all distractors are plausible but clearly incorrect when the passage is carefully read
+- Make sure the correct answer is NOT the longest option
 - Do not create questions that are too similar to any previous questions listed
 - Do not include any explanation, commentary, or notes - ONLY return the JSON object
 - Your response must be valid JSON with no other text before or after it
