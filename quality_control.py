@@ -191,11 +191,11 @@ class QuestionQualityControl:
         }
     
     async def _perform_advanced_validation(self, 
-                                         question: Dict[str, Any],
-                                         passage: Dict[str, Any],
-                                         standard_id: str,
-                                         previous_questions: List[Dict[str, Any]],
-                                         task_id: str = "") -> Dict[str, Any]:
+                                     question: Dict[str, Any],
+                                     passage: Dict[str, Any],
+                                     standard_id: str,
+                                     previous_questions: List[Dict[str, Any]],
+                                     task_id: str = "") -> Dict[str, Any]:
         """
         Perform advanced validation using Claude quality control checks
         
@@ -261,6 +261,66 @@ class QuestionQualityControl:
                     result["improvement_suggestions"].append(
                         f"Improve {check_name}: {reasoning}"
                     )
+        
+        # Run plausibility check separately
+        check_start_time = asyncio.get_event_loop().time()
+        logger.info(f"{task_id}: Running plausibility checks for distractors")
+        
+        # Get the difficulty level to determine how many plausible distractors are needed
+        difficulty_level = question.get("difficulty", "").lower()
+        
+        # Default to medium difficulty if not specified
+        if difficulty_level not in ["easy", "medium", "hard"]:
+            if isinstance(difficulty_level, str) and difficulty_level == "1":
+                difficulty_level = "easy"
+            elif isinstance(difficulty_level, str) and difficulty_level == "3":
+                difficulty_level = "hard"
+            else:
+                difficulty_level = "medium"
+                
+        logger.info(f"{task_id}: Question difficulty level: {difficulty_level}")
+        
+        # Check plausibility for each distractor
+        plausibility_results = await self._check_distractor_plausibility(
+            question, passage, standard_id, task_id
+        )
+        
+        plausible_distractors = 0
+        distractor_results = plausibility_results.get("distractors", [])
+        
+        # Count plausible distractors
+        for distractor_result in distractor_results:
+            if distractor_result.get("is_plausible", False):
+                plausible_distractors += 1
+        
+        # Determine how many plausible distractors are required based on difficulty
+        if difficulty_level == "easy":
+            required_plausible = 1
+        else:  # medium or hard
+            required_plausible = 2
+        
+        check_duration = asyncio.get_event_loop().time() - check_start_time
+        logger.info(f"{task_id}: Plausibility check completed in {check_duration:.2f}s")
+        logger.info(f"{task_id}: Found {plausible_distractors} plausible distractors (need {required_plausible})")
+        
+        # Set overall plausibility check result
+        plausibility_passes = plausible_distractors >= required_plausible
+        
+        # Add plausibility check result
+        result["quality_checks"]["plausibility"] = {
+            "passes": plausibility_passes,
+            "score": 1 if plausibility_passes else 0,
+            "reasoning": f"Found {plausible_distractors} plausible distractors, need {required_plausible} for {difficulty_level} difficulty",
+            "distractor_results": distractor_results
+        }
+        
+        if plausibility_passes:
+            logger.info(f"{task_id}: Passed plausibility check with {plausible_distractors} plausible distractors")
+        else:
+            logger.warning(f"{task_id}: Failed plausibility check: only {plausible_distractors} distractors are plausible (need {required_plausible})")
+            result["is_valid"] = False
+            result["errors"].append(f"Failed plausibility check: Only {plausible_distractors} out of 3 distractors are plausible. {difficulty_level.capitalize()} difficulty questions require at least {required_plausible} plausible distractors.")
+            result["improvement_suggestions"].append(f"Improve plausibility: Make at least {required_plausible} distractors plausible for {difficulty_level} difficulty questions.")
         
         return result
     
