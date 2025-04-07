@@ -38,6 +38,7 @@ MAX_WORKERS = config.MAX_WORKERS
 LESSONS_FILE = config.LESSONS_FILE
 PASSAGES_FILE = config.PASSAGES_FILE
 EXAMPLES_FILE = config.EXAMPLES_FILE
+EXPLANATIONS_EXAMPLES_FILE = config.EXPLANATIONS_EXAMPLES_FILE
 
 # Difficulty level mappings and map from config
 DIFFICULTY_LEVELS = config.DIFFICULTY_LEVELS
@@ -70,6 +71,7 @@ class QuizGenerator:
         self.lessons_data = []
         self.passages_data = []
         self.examples_data = []
+        self.explanations_examples_data = []
         self.standards_by_lesson = {}
         self.lessons_by_standard = {}
         self.passages_by_standard = {}
@@ -83,6 +85,7 @@ class QuizGenerator:
         - Standards for each lesson (lang_lessons.json)
         - Passages database with standards (lang_passages.json)
         - Question examples for standards and difficulties (lang_examples.json)
+        - Explanation examples (lang_explanations_examples.json)
         """
         files_to_load = [
             (LESSONS_FILE, "lessons"),
@@ -215,6 +218,25 @@ class QuizGenerator:
             
             # Map examples
             self._map_examples_by_standard_and_difficulty()
+            
+            # Load explanation examples if the file exists
+            if os.path.exists(EXPLANATIONS_EXAMPLES_FILE):
+                try:
+                    with open(EXPLANATIONS_EXAMPLES_FILE, 'r', encoding='utf-8') as f:
+                        self.explanations_examples_data = json.load(f)
+                        if not self.explanations_examples_data:
+                            logger.warning(f"No explanation examples found in {EXPLANATIONS_EXAMPLES_FILE}")
+                        else:
+                            logger.info(f"Loaded {len(self.explanations_examples_data)} explanation examples from {EXPLANATIONS_EXAMPLES_FILE}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in explanations examples file: {str(e)}")
+                    self.explanations_examples_data = []
+                except Exception as e:
+                    logger.error(f"Error loading explanations examples: {str(e)}")
+                    self.explanations_examples_data = []
+            else:
+                logger.warning(f"Explanations examples file not found: {EXPLANATIONS_EXAMPLES_FILE}")
+                self.explanations_examples_data = []
             
             # Validate data
             self._validate_data()
@@ -528,8 +550,15 @@ class QuizGenerator:
                 }
                 return quiz
             
-            # Format the quiz for output
-            quiz = self.format_quiz_output(questions, passage)
+            # Generate explanations for questions that passed quality control
+            try:
+                explanations = await self.generate_explanations_for_quiz(questions, passage)
+            except Exception as e:
+                logger.error(f"Error generating explanations: {str(e)}")
+                explanations = {}  # Empty dict if explanations fail
+            
+            # Format the quiz for output with explanations
+            quiz = self.format_quiz_output(questions, passage, explanations)
             
             # Add metadata to the quiz
             quiz["metadata"] = {
@@ -1065,18 +1094,20 @@ class QuizGenerator:
         
         return response.content[0].text
     
-    def format_quiz_output(self, questions: List[Dict[str, Any]], passage: Dict[str, Any]) -> Dict[str, Any]:
+    def format_quiz_output(self, questions: List[Dict[str, Any]], passage: Dict[str, Any], explanations: Dict[str, str] = None) -> Dict[str, Any]:
         """
         Format the final quiz output in the required JSON format
         
         Args:
             questions: List of generated questions
             passage: The passage used for the quiz
+            explanations: Optional dictionary mapping question index to explanation
             
         Returns:
             Formatted quiz data
         """
-        return {
+        # Create the base quiz structure
+        quiz = {
             "passage": {
                 "id": passage.get("id", ""),
                 "title": passage.get("title", ""),
@@ -1084,8 +1115,20 @@ class QuizGenerator:
                 "type": passage.get("type", ""),
                 "text": passage.get("text", "")
             },
-            "questions": questions
+            "questions": []
         }
+        
+        # Add questions with explanations if available
+        for i, question in enumerate(questions):
+            question_data = question.copy()  # Make a copy to avoid modifying the original
+            
+            # Add explanation if available
+            if explanations and str(i) in explanations:
+                question_data["explanation"] = explanations[str(i)]
+                
+            quiz["questions"].append(question_data)
+            
+        return quiz
 
     def get_timestamp(self) -> str:
         """
@@ -1291,6 +1334,300 @@ class QuizGenerator:
         logger.info(f"Generated {len(all_questions)} questions in total")
         
         return all_questions
+
+    async def generate_explanation(self, question: Dict[str, Any], passage: Dict[str, Any]) -> str:
+        """
+        Generate an explanation for a question using Claude
+        
+        Args:
+            question: The question to generate an explanation for
+            passage: The passage the question is based on
+            
+        Returns:
+            A detailed explanation for the question
+        """
+        logger.info(f"Generating explanation for question: {question.get('question', '')[:50]}...")
+        
+        try:
+            # Create the prompt for explanation generation
+            explanation_prompt = self._build_explanation_prompt(question, passage)
+            
+            # Call Claude to generate the explanation
+            response = await self.call_claude_with_system_prompt(explanation_prompt)
+            
+            if not response:
+                logger.warning("Empty response when generating explanation")
+                return ""
+                
+            # Just return the raw response as the explanation
+            return response.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating explanation: {str(e)}")
+            return "An explanation couldn't be generated for this question."
+    
+    async def call_claude_with_system_prompt(self, user_prompt: str) -> str:
+        """
+        Call Claude API with both system and user prompts, using ephemeral cache for examples
+        
+        Args:
+            user_prompt: The user prompt to send to Claude
+            
+        Returns:
+            Claude's response
+        """
+        logger.info("Calling Claude API with system prompt and ephemeral cache for examples")
+        
+        # Initialize client if needed
+        if not hasattr(self, 'client') or self.client is None:
+            api_key = ANTHROPIC_API_KEY
+            if not api_key:
+                raise ValueError("No API key provided. Set ANTHROPIC_API_KEY environment variable.")
+            self.client = anthropic.Anthropic(api_key=api_key)
+            logger.info("Initialized Claude client")
+        
+        # Convert examples to JSON for caching
+        examples_json = json.dumps(self.explanations_examples_data[:3]) if self.explanations_examples_data else "[]"
+        
+        # Create system prompts with ephemeral cache control for examples
+        system = [
+            {
+                "type": "text",
+                "text": "output strict, well-formatted html within <html></html> tags. do not use classes, only semantic html. do not use 'Choice A', 'Choice B', etc; quote the beginning and the end of the option."
+            },
+            {
+                "type": "text",
+                "text": f"Here is a list of good explanation examples to guide you: {examples_json}. Analyze it carefully. To generate a comprehensive explanation that combines technical precision with rich context, follow these steps:",
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+        
+        # Make API call using asyncio.to_thread for thread safety
+        try:
+            response = await asyncio.to_thread(
+                lambda: self.client.messages.create(
+                    model=MODEL,
+                    max_tokens=1024,
+                    system=system,
+                    messages=[
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+            )
+            
+            # Check for empty response
+            if not response or not response.content or not response.content[0].text:
+                raise ValueError("Empty response from Claude API")
+            
+            return response.content[0].text
+        except Exception as e:
+            logger.error(f"Error in Claude API call: {str(e)}")
+            # If there's an issue with the ephemeral cache approach, fall back to simpler method
+            try:
+                logger.info("Falling back to simple system prompt without ephemeral cache")
+                response = await asyncio.to_thread(
+                    lambda: self.client.messages.create(
+                        model=MODEL,
+                        max_tokens=1024,
+                        system="Output well-formatted html explanations for AP Language questions.",
+                        messages=[
+                            {"role": "user", "content": user_prompt}
+                        ]
+                    )
+                )
+                return response.content[0].text
+            except Exception as fallback_error:
+                logger.error(f"Fallback also failed: {str(fallback_error)}")
+                raise
+    
+    def _build_explanation_prompt(self, question: Dict[str, Any], passage: Dict[str, Any]) -> str:
+        """
+        Build a prompt for generating an explanation for a question
+        
+        Args:
+            question: The question to explain
+            passage: The passage the question is based on
+            
+        Returns:
+            A formatted prompt string
+        """
+        # Extract relevant information
+        question_text = question.get("question", "")
+        correct_answer = question.get("correct_answer", "")
+        distractors = [
+            question.get("distractor1", ""),
+            question.get("distractor2", ""),
+            question.get("distractor3", "")
+        ]
+        standard = question.get("standard", "")
+        
+        # Passage information
+        passage_title = passage.get("title", "")
+        passage_author = passage.get("author", "")
+        passage_text = passage.get("text", "")
+        
+        # Build the prompt - keep it simple since examples are in system prompt
+        prompt = f"""
+## Step 1: Initial Analysis
+1. Identify:
+   - Main skill tested
+   - Key paragraph references in question
+   - Type of evidence needed
+   - Potential misconceptions
+   - Historical/contextual knowledge needed
+
+## Step 2: Evidence Organization
+Create structured evidence notes:
+1. Primary Evidence:
+   ```
+   Line [X]: "[exact quote]"
+   - Immediate context:
+   - Connection to question:
+   - Related evidence (lines [Y], [Z]):
+   ```
+2. Supporting Evidence:
+   ```
+   Pattern/Theme:
+   - Evidence 1 (line [A])
+   - Evidence 2 (line [B])
+   - Connection to main point:
+   ```
+
+## Step 3: Answer Analysis Matrix
+Create for each option:
+```
+Option [X]:
+- Initial appeal:
+- Supporting evidence (lines):
+- Contradicting evidence (lines):
+- Common misconception:
+- Rebuttal approach:
+```
+
+## Step 4: Explanation Structure
+
+### Opening Paragraph (Technical Foundation)
+```
+<Strong technical opening>
+Choice '[X]' is correct. In lines [specific numbers], the author [specific analytical point with quote] which demonstrates [connection to question focus].
+</Strong technical opening>
+
+<Rich context layer>
+[Relevant historical/literary context] provides important background for understanding this [literary device/choice/strategy].
+</Rich context layer>
+```
+
+### Evidence Analysis (Dual-Layer Approach)
+```
+<Technical layer>
+This is supported in paragraphs [numbers] where "[exact quote]" shows [specific analysis]. Additionally, in paragraphs [numbers], the author [supporting evidence analysis].
+</Technical layer>
+
+<Contextual layer>
+This pattern of [literary strategy] reflects [broader significance or historical context], which strengthens the author's [purpose/intent].
+</Contextual layer>
+```
+
+### Wrong Answer Analysis (Integrated Approach)
+```
+<Technical refutation>
+While Choice '[Y]' might initially appeal because [specific reason], lines [numbers] demonstrate [contradicting evidence].
+</Technical refutation>
+
+<Misconception handling>
+Students might be drawn to this option due to [common misconception], but understanding [key principle] helps avoid this error.
+</Misconception handling>
+
+<Group related options>
+Choices '[Z]' and '[W]' reflect similar misreadings of the author's [strategy/intent], as both [explanation of common error].
+</Group related options>
+```
+
+### Synthesis and Guidance
+```
+<Technical takeaway>
+The correct answer recognizes how lines [numbers] demonstrate [key analytical point].
+</Technical takeaway>
+
+<Strategic guidance>
+When analyzing similar [literary devices/strategies], look for:
+1. [Specific clue/pattern]
+2. [Contextual element]
+3. [Common pitfall to avoid]
+</Strategic guidance>
+```
+Note: Do not include headers or titles in the explanation. Just use new paragraphs.
+
+## Step 5: Quality Control Integration
+
+Before finalizing, verify presence of:
+1. Technical Elements:
+   - Paragraph numbers for all evidence
+   - Direct quotes with analysis
+   - Clear logical progression
+   - All options addressed
+
+2. Contextual Elements:
+   - Historical/literary context
+   - Common misconceptions addressed
+   - Strategic guidance
+   - Broader significance
+
+3. Writing Quality:
+   - Academic tone
+   - Active voice
+   - Precise terminology
+   - Clear transitions
+
+## Example Template:
+<html><p>Choice '[X]' is correct. In paragraphs [numbers], the author [quote with technical analysis] demonstrates [specific skill]. This [literary choice] has particular significance because [historical/literary context].</p><p>The technical evidence for this appears in paragraphs [numbers] where "[exact quote]" shows [analysis]. This connects to the broader pattern of [literary element] seen in paragraphs [numbers], where [supporting evidence].</p><p>While Choice '[Y]' might seem plausible because [specific reason], careful attention to paragraphs [numbers] reveals [contradicting evidence]. This represents a common misconception about [literary element], where readers might [error pattern]. Similarly, Choices '[Z]' and '[W]' misinterpret the author's [strategy/intent] by [specific error].</p><p>Students approaching similar questions should:<ol><li>1. Look for [specific textual clue]</li><li>2. Consider [contextual element]</li><li>3. Avoid [common pitfall]</li></ol></p><p>The correct choice ultimately recognizes how the author's use of [literary element] in paragraphs [numbers] serves to [purpose/intent], demonstrating the broader pattern of [literary element/analysis] that characterizes this passage.</p></html>
+
+# Question Information
+Question: {question_text}
+Correct Answer: {correct_answer}
+Incorrect Options:
+- {distractors[0]}
+- {distractors[1]}
+- {distractors[2]}
+Standard: {standard}
+
+# Passage
+Title: {passage_title}
+Author: {passage_author}
+
+{passage_text}
+"""
+        return prompt
+    
+    async def generate_explanations_for_quiz(self, questions: List[Dict[str, Any]], passage: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Generate explanations for all questions in a quiz
+        
+        Args:
+            questions: List of questions to generate explanations for
+            passage: The passage the questions are based on
+            
+        Returns:
+            Dictionary mapping question indices (as strings) to explanations
+        """
+        logger.info(f"Generating explanations for {len(questions)} questions")
+        
+        explanations = {}
+        
+        # Generate explanations sequentially
+        for i, question in enumerate(questions):
+            logger.info(f"Generating explanation for question {i+1}/{len(questions)}")
+            
+            explanation = await self.generate_explanation(question, passage)
+            
+            if explanation:
+                explanations[str(i)] = explanation
+                logger.info(f"Generated explanation for question {i+1}")
+            else:
+                logger.warning(f"Failed to generate explanation for question {i+1}")
+                
+        logger.info(f"Generated {len(explanations)} explanations")
+        return explanations
 
 # Helper functions
 def build_prompt(passage: Dict[str, Any], 

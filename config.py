@@ -38,6 +38,7 @@ class Config:
     PASSAGES_FILE = os.path.join(DATA_DIR, os.environ.get("PASSAGES_FILE", "lang_passages.json"))
     EXAMPLES_FILE = os.path.join(DATA_DIR, os.environ.get("EXAMPLES_FILE", "lang_examples.json"))
     QC_PROMPTS_FILE = os.path.join(DATA_DIR, os.environ.get("QC_PROMPTS_FILE", "lang-question-qc.json"))
+    EXPLANATIONS_EXAMPLES_FILE = os.path.join(DATA_DIR, os.environ.get("EXPLANATIONS_EXAMPLES_FILE", "lang_explanations_examples.json"))
     LOG_FILE = os.environ.get("LOG_FILE", "quiz_generator.log")
     
     # Difficulty level mappings
