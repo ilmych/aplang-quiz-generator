@@ -26,8 +26,8 @@ class Config:
     RETRY_DELAY = float(os.environ.get("RETRY_DELAY", "2.0"))
     
     # Timeout configuration
-    API_TIMEOUT = int(os.environ.get("API_TIMEOUT", "60"))  # seconds
-    BATCH_TIMEOUT = int(os.environ.get("BATCH_TIMEOUT", "120"))  # seconds
+    API_TIMEOUT = int(os.environ.get("API_TIMEOUT", "240"))  # seconds
+    BATCH_TIMEOUT = int(os.environ.get("BATCH_TIMEOUT", "360"))  # seconds
     
     # Concurrency configuration
     MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "5"))

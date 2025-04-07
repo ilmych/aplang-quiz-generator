@@ -393,45 +393,78 @@ class QuizGenerator:
                     if prev_std not in all_previous_standards:
                         all_previous_standards.append(prev_std)
             
-            # Check if we have writing examples for the main standards before attempting to select Draft passages
+            # Primary standard for the lesson
             primary_standard = lesson_standards[0]
-            has_writing_examples = self._check_for_writing_examples(primary_standard)
-                
+            
             # Select a passage for the quiz
             # Try to find a passage that works for all lesson standards
             passage = None
             if len(lesson_standards) > 1:
-                common_passages = None
-                for std in lesson_standards:
-                    std_passages = self.passages_by_standard.get(std, [])
-                    
-                    if not std_passages:
-                        logger.warning(f"No passages found for standard: {std}")
-                        continue
-                        
-                    if common_passages is None:
-                        common_passages = set(std_passages)
-                    else:
-                        common_passages &= set(std_passages)
+                # Find common passages across all standards based on passage IDs
+                # First, get passage IDs for the first standard
+                first_std = lesson_standards[0]
+                first_std_passages = self.passages_by_standard.get(first_std, [])
                 
-                if common_passages:
-                    # Get list of passages
-                    passage_list = list(common_passages)
-                    
-                    # If we don't have writing examples for the primary standard, filter out Draft passages
-                    if not has_writing_examples:
-                        non_draft_passages = [p for p in passage_list if p.get("type") != "Draft"]
-                        if non_draft_passages:
-                            logger.info(f"Filtered out Draft passages due to lack of writing examples")
-                            passage_list = non_draft_passages
-                    
-                    if passage_list:
-                        passage = random.choice(passage_list)
-                        logger.info(f"Found passage that covers all {len(lesson_standards)} standards")
-                    else:
-                        logger.warning(f"No suitable passages cover all standards. Selecting passage for first standard.")
+                if not first_std_passages:
+                    logger.warning(f"No passages found for standard: {first_std}")
                 else:
-                    logger.warning(f"No passage covers all standards. Selecting passage for first standard.")
+                    # Create a dictionary mapping passage IDs to passage objects for the first standard
+                    passage_map = {p.get("id"): p for p in first_std_passages if p.get("id")}
+                    common_passage_ids = set(passage_map.keys())
+                    
+                    # Find passage IDs common to all standards
+                    for std in lesson_standards[1:]:
+                        std_passages = self.passages_by_standard.get(std, [])
+                        if not std_passages:
+                            logger.warning(f"No passages found for standard: {std}")
+                            common_passage_ids = set()  # No common passages possible
+                            break
+                        
+                        # Get passage IDs for this standard
+                        std_passage_ids = {p.get("id") for p in std_passages if p.get("id")}
+                        
+                        # Keep only the IDs common to all standards so far
+                        common_passage_ids &= std_passage_ids
+                    
+                    if common_passage_ids:
+                        # Get the actual passage objects
+                        common_passages = [passage_map[pid] for pid in common_passage_ids if pid in passage_map]
+                        
+                        if common_passages:
+                            # Select a passage randomly
+                            selected_passage = random.choice(common_passages)
+                            
+                            # Check if the selected passage is appropriate based on type
+                            if selected_passage.get("type") == "Draft":
+                                # For Draft passages, we need writing examples for all relevant standards
+                                all_have_writing_examples = True
+                                for std in lesson_standards:
+                                    if not self._check_for_writing_examples(std):
+                                        all_have_writing_examples = False
+                                        logger.warning(f"Standard {std} does not have writing examples")
+                                        break
+                                
+                                if all_have_writing_examples:
+                                    passage = selected_passage
+                                    logger.info(f"Selected Draft passage with available writing examples for all standards")
+                                else:
+                                    # If we can't use this Draft passage, try to find a non-Draft passage
+                                    non_draft_passages = [p for p in common_passages if p.get("type") != "Draft"]
+                                    if non_draft_passages:
+                                        passage = random.choice(non_draft_passages)
+                                        logger.info(f"Selected non-Draft passage as not all standards have writing examples")
+                                    else:
+                                        logger.warning(f"No suitable non-Draft passages found for standards")
+                            else:
+                                # Non-Draft passages are always acceptable
+                                passage = selected_passage
+                                
+                            if passage:
+                                logger.info(f"Found passage that covers all {len(lesson_standards)} standards")
+                        else:
+                            logger.warning(f"No suitable passages cover all standards. Selecting passage for first standard.")
+                    else:
+                        logger.warning(f"No passage covers all standards. Selecting passage for first standard.")
             
             if not passage:
                 # If no common passage or only one standard, pick a passage for the first standard
@@ -441,19 +474,31 @@ class QuizGenerator:
                     logger.error(f"No suitable passage found for standard {primary_standard}")
                     return self._handle_missing_data(standard_id=primary_standard, lesson_name=lesson_name)
                 
-                # If we don't have writing examples for this standard, filter out Draft passages
-                if not has_writing_examples:
-                    non_draft_passages = [p for p in passages if p.get("type") != "Draft"]
-                    if non_draft_passages:
-                        logger.info(f"Filtered out Draft passages for standard {primary_standard} due to lack of writing examples")
-                        passages = non_draft_passages
+                # First try to select a random passage
+                selected_passage = random.choice(passages)
                 
-                if not passages:
-                    logger.error(f"No suitable passage found for standard {primary_standard} after filtering")
-                    return self._handle_missing_data(standard_id=primary_standard, lesson_name=lesson_name)
+                # Check if the passage is appropriate based on type
+                if selected_passage.get("type") == "Draft":
+                    # For Draft passages, we need writing examples
+                    has_writing_examples = self._check_for_writing_examples(primary_standard)
+                    if has_writing_examples:
+                        passage = selected_passage
+                        logger.info(f"Selected Draft passage with available writing examples")
+                    else:
+                        # If we can't use this Draft passage, try to find a non-Draft passage
+                        non_draft_passages = [p for p in passages if p.get("type") != "Draft"]
+                        if non_draft_passages:
+                            passage = random.choice(non_draft_passages)
+                            logger.info(f"Selected non-Draft passage as no writing examples available")
+                        else:
+                            logger.error(f"No suitable non-Draft passages found for standard {primary_standard}")
+                            return self._handle_missing_data(standard_id=primary_standard, lesson_name=lesson_name)
+                else:
+                    # Non-Draft passages are always acceptable
+                    passage = selected_passage
                 
-                passage = random.choice(passages)
-                logger.info(f"Selected passage for standard: {primary_standard}, type: {passage.get('type', 'Unknown')}")
+                if passage:
+                    logger.info(f"Selected passage for standard: {primary_standard}, type: {passage.get('type', 'Unknown')}")
                 
             # Determine question distribution based on difficulty and standards
             question_distribution = self.distribute_questions(
@@ -502,42 +547,6 @@ class QuizGenerator:
             logger.error(f"Unexpected error in generate_quiz: {str(e)}", exc_info=True)
             return self._handle_missing_data(standard_id=standard_id, lesson_name=lesson_name)
     
-    def get_standards_for_lesson(self, lesson_name: str) -> List[str]:
-        """
-        Find the standards associated with a lesson
-        
-        Args:
-            lesson_name: Name of the lesson
-            
-        Returns:
-            List of standard IDs associated with the lesson
-        """
-        standards = self.standards_by_lesson.get(lesson_name, [])
-        if not standards:
-            logger.warning(f"No standards found for lesson: {lesson_name}")
-            return []
-            
-        return standards
-    
-    def get_previous_standards(self, current_standard: str) -> List[str]:
-        """
-        Get all standards that appear before the current standard in the curriculum
-        
-        Args:
-            current_standard: The current standard ID
-            
-        Returns:
-            List of standard IDs that appear earlier in the curriculum
-        """
-        # This is a simplified implementation - your actual ordering logic may differ
-        all_standards = list(self.lessons_by_standard.keys())
-        
-        if current_standard not in all_standards:
-            return all_standards
-            
-        current_index = all_standards.index(current_standard)
-        return all_standards[:current_index + 1]  # Include current standard
-    
     def select_passage(self, standard_id: str) -> Dict[str, Any]:
         """
         Select an appropriate passage for the given standard
@@ -550,29 +559,59 @@ class QuizGenerator:
         """
         if isinstance(standard_id, list):
             # Try to find a passage that works for all standards
-            common_passages = None
-            for std in standard_id:
-                std_passages = self.passages_by_standard.get(std, [])
-                if common_passages is None:
-                    common_passages = set(std_passages)
-                else:
-                    common_passages &= set(std_passages)
+            if not standard_id:  # Empty list case
+                return None
+                
+            # Get passages for the first standard
+            first_std = standard_id[0]
+            first_std_passages = self.passages_by_standard.get(first_std, [])
             
-            if common_passages:
-                # Filter passages if we have multiple options
-                passages_list = list(common_passages)
-                # Check for writing examples for the first standard
-                has_writing_examples = self._check_for_writing_examples(standard_id[0])
+            if not first_std_passages:
+                logger.warning(f"No passages found for standard: {first_std}")
+                return None
                 
-                # Filter out Draft passages if there are no writing examples
-                if not has_writing_examples:
-                    non_draft_passages = [p for p in passages_list if p.get("type") != "Draft"]
-                    if non_draft_passages:
-                        logger.info(f"Filtered out Draft passages due to lack of writing examples")
-                        passages_list = non_draft_passages
+            # Create a dictionary mapping passage IDs to passage objects
+            passage_map = {p.get("id"): p for p in first_std_passages if p.get("id")}
+            common_passage_ids = set(passage_map.keys())
+            
+            # Find passage IDs common to all standards
+            for std in standard_id[1:]:
+                std_passages = self.passages_by_standard.get(std, [])
+                if not std_passages:
+                    logger.warning(f"No passages found for standard: {std}")
+                    common_passage_ids = set()  # No common passages possible
+                    break
                 
-                if passages_list:
-                    return random.choice(passages_list)
+                # Get passage IDs for this standard
+                std_passage_ids = {p.get("id") for p in std_passages if p.get("id")}
+                
+                # Keep only the IDs common to all standards so far
+                common_passage_ids &= std_passage_ids
+            
+            if common_passage_ids:
+                # Get the actual passage objects
+                common_passages = [passage_map[pid] for pid in common_passage_ids if pid in passage_map]
+                
+                if common_passages:
+                    # First try to select a random passage
+                    selected_passage = random.choice(common_passages)
+                    
+                    # Check if the selected passage is appropriate based on type
+                    if selected_passage.get("type") == "Draft":
+                        # For Draft passages, we need writing examples for the first standard
+                        # (For multiple standards, we check the first one as representative)
+                        has_writing_examples = self._check_for_writing_examples(first_std)
+                        if has_writing_examples:
+                            return selected_passage
+                        else:
+                            # If we can't use this Draft passage, try to find a non-Draft passage
+                            non_draft_passages = [p for p in common_passages if p.get("type") != "Draft"]
+                            if non_draft_passages:
+                                return random.choice(non_draft_passages)
+                            # If no non-Draft passages, we'll fall through to the fallback
+                    else:
+                        # Non-Draft passages are always acceptable
+                        return selected_passage
             
             # Fallback: just pick a passage for the first standard
             std = standard_id[0]
@@ -584,49 +623,26 @@ class QuizGenerator:
             if not passages:
                 return None
             
-            # Check if we have writing examples for this standard
-            has_writing_examples = self._check_for_writing_examples(standard_id)
+            # First try to select a random passage
+            selected_passage = random.choice(passages)
             
-            # Filter out Draft passages if we have no writing examples
-            if not has_writing_examples:
-                non_draft_passages = [p for p in passages if p.get("type") != "Draft"]
-                if non_draft_passages:
-                    logger.info(f"Filtered out Draft passages for standard {standard_id} due to lack of writing examples")
-                    passages = non_draft_passages
-            
-            if not passages:
-                logger.warning(f"No suitable passages found for standard {standard_id}")
-                return None
-            
-            return random.choice(passages)
-
-    def _check_for_writing_examples(self, standard_id: str) -> bool:
-        """
-        Check if a standard has examples of type 'writing'
-        
-        Args:
-            standard_id: The standard ID to check
-            
-        Returns:
-            True if writing examples exist, False otherwise
-        """
-        logger.info(f"Checking for writing examples for standard: {standard_id}")
-        
-        # Check all difficulty levels for writing examples
-        for difficulty in ["1", "2", "3"]:
-            key = (standard_id, difficulty)
-            if key in self.examples_by_standard_and_difficulty:
-                examples = self.examples_by_standard_and_difficulty[key]
-                # Check if any example has type 'writing'
-                writing_examples = [ex for ex in examples if ex.get("type") == "writing"]
-                if writing_examples:
-                    logger.info(f"Found {len(writing_examples)} writing examples for {standard_id} at difficulty {difficulty}")
-                    return True
+            # Check if the passage is appropriate based on type
+            if selected_passage.get("type") == "Draft":
+                # For Draft passages, we need writing examples
+                has_writing_examples = self._check_for_writing_examples(standard_id)
+                if has_writing_examples:
+                    return selected_passage
                 else:
-                    logger.debug(f"No writing examples found for {standard_id} at difficulty {difficulty} (found {len(examples)} other examples)")
-        
-        logger.warning(f"No writing examples found for standard: {standard_id}")
-        return False
+                    # If we can't use this Draft passage, try to find a non-Draft passage
+                    non_draft_passages = [p for p in passages if p.get("type") != "Draft"]
+                    if non_draft_passages:
+                        return random.choice(non_draft_passages)
+                    else:
+                        logger.warning(f"No suitable non-Draft passages found for standard {standard_id}")
+                        return None
+            else:
+                # Non-Draft passages are always acceptable
+                return selected_passage
 
     def distribute_questions(self, 
                            num_questions: int, 
@@ -891,149 +907,6 @@ class QuizGenerator:
         logger.info(f"Final question distribution: {result}")
         
         return result
-    
-    async def generate_questions(self, 
-                               passage: Dict[str, Any], 
-                               question_distribution: Dict[str, Dict[str, int]],
-                               previous_questions: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """
-        Generate quiz questions using Claude
-        
-        Args:
-            passage: The passage to generate questions for
-            question_distribution: Distribution of questions by standard and difficulty
-            previous_questions: List of previously generated questions (to avoid repetition)
-            
-        Returns:
-            List of generated question dictionaries
-        """
-        if previous_questions is None:
-            previous_questions = []
-        
-        overall_start_time = asyncio.get_event_loop().time()
-        total_questions = sum(sum(difficulties.values()) for difficulties in question_distribution.values())
-        logger.info(f"Starting generation of {total_questions} questions")
-        
-        try:
-            # Create tasks for each standard and difficulty level
-            logger.info("Creating question generation tasks")
-            tasks = []
-            task_info = []  # Store info about each task for logging
-            task_counter = 0
-            
-            # Check the passage type to determine what example types to use
-            is_draft_passage = passage.get("type") == "Draft"
-            required_example_type = "writing" if is_draft_passage else "reading"
-            logger.info(f"Passage type: {passage.get('type')} - Using {required_example_type} examples")
-            
-            for standard_id, difficulties in question_distribution.items():
-                for difficulty_level, count in difficulties.items():
-                    logger.debug(f"Preparing {count} tasks for standard {standard_id} at difficulty {difficulty_level}")
-                    for i in range(count):
-                        task_counter += 1
-                        # Find example question for this standard and difficulty
-                        difficulty_code = DIFFICULTY_MAP.get(difficulty_level, "1")
-                        examples = self.examples_by_standard_and_difficulty.get((standard_id, difficulty_code), [])
-                        
-                        # Filter examples by type based on passage
-                        filtered_examples = [ex for ex in examples if ex.get("type") == required_example_type]
-                        
-                        if not filtered_examples:
-                            logger.warning(f"No {required_example_type} examples found for {standard_id} at difficulty {difficulty_level}")
-                            if examples:
-                                # If no examples of the required type but we have other examples
-                                # just use those as a fallback to prevent complete failure
-                                logger.warning(f"Falling back to available examples")
-                                filtered_examples = examples
-                            else:
-                                continue
-                        
-                        example = random.choice(filtered_examples)
-                        logger.debug(f"Selected {example.get('type', 'unknown')} example for standard {standard_id}, difficulty {difficulty_level}")
-                        
-                        # Create task
-                        task = self.generate_question_for_standard_and_difficulty(
-                            passage, 
-                            standard_id, 
-                            difficulty_level, 
-                            example, 
-                            previous_questions.copy(),
-                            f"Question {task_counter}/{total_questions}"  # Add task identifier
-                        )
-                        tasks.append(task)
-                        task_info.append({
-                            "standard": standard_id,
-                            "difficulty": difficulty_level,
-                            "task_id": task_counter
-                        })
-            
-            logger.info(f"Created {len(tasks)} question generation tasks")
-            
-            # Process tasks in batches to limit concurrency
-            results = []
-            for i in range(0, len(tasks), MAX_WORKERS):
-                batch_start_time = asyncio.get_event_loop().time()
-                batch = tasks[i:i+MAX_WORKERS]
-                batch_info = task_info[i:i+MAX_WORKERS]
-                
-                batch_size = len(batch)
-                current_batch = i//MAX_WORKERS + 1
-                total_batches = (len(tasks)-1)//MAX_WORKERS + 1
-                
-                logger.info(f"Processing batch {current_batch}/{total_batches} of {batch_size} questions")
-                
-                try:
-                    # Set a timeout for each batch to prevent hanging
-                    batch_timeout = 120  # 2 minutes per batch
-                    batch_results = await asyncio.wait_for(
-                        asyncio.gather(*batch, return_exceptions=True),
-                        timeout=batch_timeout
-                    )
-                    
-                    batch_end_time = asyncio.get_event_loop().time()
-                    batch_duration = batch_end_time - batch_start_time
-                    
-                    # Process results, handling any exceptions
-                    successful_questions = 0
-                    for result, info in zip(batch_results, batch_info):
-                        if isinstance(result, Exception):
-                            logger.error(f"Task for standard {info['standard']} at difficulty {info['difficulty']} (Task {info['task_id']}/{total_questions}) failed with error: {str(result)}")
-                            continue
-                            
-                        if result:
-                            successful_questions += 1
-                            results.append(result)
-                            # Add to previous questions to avoid repetition in future tasks
-                            previous_questions.append(result)
-                        else:
-                            logger.warning(f"Failed to generate question for standard {info['standard']} at difficulty {info['difficulty']} (Task {info['task_id']}/{total_questions})")
-                    
-                    logger.info(f"Batch {current_batch}/{total_batches} complete: {successful_questions}/{batch_size} questions generated successfully in {batch_duration:.2f}s")
-                
-                except asyncio.TimeoutError:
-                    logger.error(f"Batch {current_batch}/{total_batches} timed out after {batch_timeout} seconds")
-                except Exception as e:
-                    logger.error(f"Error processing batch {current_batch}/{total_batches}: {str(e)}")
-            
-            overall_end_time = asyncio.get_event_loop().time()
-            overall_duration = overall_end_time - overall_start_time
-            success_rate = len(results) / total_questions if total_questions > 0 else 0
-            
-            logger.info(f"Question generation complete: {len(results)}/{total_questions} questions generated successfully ({success_rate:.1%}) in {overall_duration:.2f}s")
-            if total_questions > 0:
-                logger.info(f"Average time per question: {overall_duration/total_questions:.2f}s")
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error in generate_questions: {str(e)}")
-            # Return any results we managed to get
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error in generate_questions: {str(e)}")
-            # Return any results we managed to get
-            return results
 
     async def generate_question_for_standard_and_difficulty(self,
                                                          passage: Dict[str, Any],
@@ -1222,6 +1095,202 @@ class QuizGenerator:
             ISO format timestamp string
         """
         return datetime.datetime.now().isoformat(sep=' ', timespec='seconds')
+
+    def get_standards_for_lesson(self, lesson_name: str) -> List[str]:
+        """
+        Returns a list of standards associated with a given lesson name.
+        
+        Args:
+            lesson_name: The name of the lesson to get standards for
+            
+        Returns:
+            List of standard IDs associated with the lesson
+        """
+        if not lesson_name:
+            logger.warning("No lesson name provided to get_standards_for_lesson")
+            return []
+            
+        standards = self.standards_by_lesson.get(lesson_name, [])
+        
+        if not standards:
+            logger.warning(f"No standards found for lesson: {lesson_name}")
+            
+        return standards
+        
+    def get_previous_standards(self, standard_id: str) -> List[str]:
+        """
+        Returns a list of standards that come before the given standard in the curriculum.
+        Uses the sequence defined in lang_lessons.json.
+        
+        Args:
+            standard_id: The standard ID to get previous standards for
+            
+        Returns:
+            List of standard IDs that precede the given standard
+        """
+        if not standard_id:
+            return []
+            
+        # Get all standards in curriculum order
+        all_standards = []
+        standard_position = -1
+        
+        # Process each lesson in order
+        for lesson_data in self.lessons_data:
+            standards_str = lesson_data.get("standards", "")
+            
+            # Skip if no standards
+            if not standards_str:
+                continue
+                
+            # Handle both string and list formats
+            if isinstance(standards_str, str):
+                standards_list = [std.strip() for std in standards_str.split(',') if std.strip()]
+            else:
+                standards_list = standards_str
+                
+            # Add each standard to our ordered list
+            for std in standards_list:
+                if std not in all_standards:
+                    all_standards.append(std)
+                    
+                    # Record position of our target standard
+                    if std == standard_id:
+                        standard_position = len(all_standards) - 1
+        
+        # If standard not found, return empty list
+        if standard_position == -1:
+            logger.warning(f"Standard not found in curriculum: {standard_id}")
+            return []
+            
+        # Return all standards up to (but not including) the target standard
+        previous_standards = all_standards[:standard_position]
+        
+        # Add the current standard itself
+        previous_standards.append(standard_id)
+        
+        return previous_standards
+
+    def _check_for_writing_examples(self, standard_id: str) -> bool:
+        """
+        Check if there are any 'writing' type examples available for the given standard.
+        
+        Args:
+            standard_id: The standard ID to check for writing examples
+            
+        Returns:
+            True if writing examples exist for this standard, False otherwise
+        """
+        if not standard_id:
+            logger.warning("No standard ID provided to check for writing examples")
+            return False
+            
+        # Check each difficulty level for writing examples
+        for difficulty in ["1", "2", "3"]:
+            key = (standard_id, difficulty)
+            examples = self.examples_by_standard_and_difficulty.get(key, [])
+            
+            # Look for writing examples
+            for example in examples:
+                if example.get("type") == "writing":
+                    logger.info(f"Found writing example for standard {standard_id}, difficulty {difficulty}")
+                    return True
+                    
+        logger.warning(f"No writing examples found for standard: {standard_id}")
+        return False
+
+    async def generate_questions(self, passage: Dict[str, Any], question_distribution: Dict[str, Dict[str, int]]) -> List[Dict[str, Any]]:
+        """
+        Generate questions for a passage according to the specified distribution.
+        Uses different example types based on passage type:
+        - For Draft passages: use only 'writing' type examples
+        - For non-Draft passages: use only 'reading' type examples
+        
+        Args:
+            passage: The passage to generate questions for
+            question_distribution: Distribution of questions by standard and difficulty
+            
+        Returns:
+            List of generated question dictionaries
+        """
+        logger.info(f"Generating questions for passage: {passage.get('title', 'Unknown')}")
+        logger.info(f"Passage type: {passage.get('type', 'Unknown')}")
+        
+        # Determine what type of examples to use based on passage type
+        passage_type = passage.get("type", "")
+        use_writing_examples = (passage_type == "Draft")
+        
+        if use_writing_examples:
+            logger.info("This is a Draft passage - will use 'writing' type examples only")
+        else:
+            logger.info("This is a non-Draft passage - will use 'reading' type examples only")
+        
+        # Prepare to collect all generated questions
+        all_questions = []
+        
+        # Track generation tasks
+        tasks = []
+        results = []
+        
+        # Process each standard and difficulty level
+        for standard_id, difficulty_counts in question_distribution.items():
+            for difficulty_name, count in difficulty_counts.items():
+                # Skip if no questions needed for this standard/difficulty
+                if count <= 0:
+                    continue
+                    
+                # Map difficulty name to numeric value
+                difficulty_value = DIFFICULTY_MAP.get(difficulty_name, "1")
+                
+                # Get examples for this standard and difficulty
+                key = (standard_id, difficulty_value)
+                all_examples = self.examples_by_standard_and_difficulty.get(key, [])
+                
+                # Filter examples by type based on passage type
+                if use_writing_examples:
+                    examples = [ex for ex in all_examples if ex.get("type") == "writing"]
+                    if not examples:
+                        logger.warning(f"No writing examples for {standard_id} at difficulty {difficulty_value}, fallback to any examples")
+                        examples = all_examples  # Fallback to any available examples
+                else:
+                    examples = [ex for ex in all_examples if ex.get("type", "reading") == "reading"]
+                    if not examples:
+                        logger.warning(f"No reading examples for {standard_id} at difficulty {difficulty_value}, fallback to any examples")
+                        examples = all_examples  # Fallback to any available examples
+                
+                if not examples:
+                    logger.error(f"No examples found for standard {standard_id} at difficulty {difficulty_value}")
+                    continue
+                
+                # Generate multiple questions for this standard/difficulty
+                for i in range(count):
+                    # Pick a random example to use as template
+                    example = random.choice(examples)
+                    
+                    task_id = f"{standard_id}_{difficulty_value}_{i+1}"
+                    logger.info(f"Generating question {i+1}/{count} for standard {standard_id}, difficulty {difficulty_name}")
+                    
+                    # Generate a new question
+                    question = await self.generate_question_for_standard_and_difficulty(
+                        passage=passage,
+                        standard_id=standard_id,
+                        difficulty_level=difficulty_value,
+                        example_question=example,
+                        previous_questions=all_questions,
+                        task_id=task_id
+                    )
+                    
+                    if question:
+                        # Add generated question to our collection
+                        all_questions.append(question)
+                        logger.info(f"Successfully generated question for {standard_id}, difficulty {difficulty_name}")
+                    else:
+                        logger.warning(f"Failed to generate question for {standard_id}, difficulty {difficulty_name}")
+        
+        # Log summary of generation
+        logger.info(f"Generated {len(all_questions)} questions in total")
+        
+        return all_questions
 
 # Helper functions
 def build_prompt(passage: Dict[str, Any], 
